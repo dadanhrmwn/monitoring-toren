@@ -1,0 +1,133 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aqua Monitor - Level Air</title>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#0b1220;color:#edf5ff}
+main{max-width:900px;margin:auto;padding:22px}
+header{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+.logo{background:#0e9f91;border-radius:15px;padding:14px;font-size:25px}
+h1{font-size:23px;margin:0}
+.muted{color:#94a3b8;font-size:13px;margin-top:6px}
+.status{margin-left:auto;color:#fbbf24;font-size:12px}
+.panel{background:#151f31;border:1px solid #29364a;border-radius:18px;padding:20px;margin-bottom:16px}
+.small{color:#94a3b8;font-size:13px}
+.big{font-size:42px;font-weight:bold;margin:10px 0}
+.teal{color:#5eead4}
+.bar{height:12px;background:#29364a;border-radius:20px;overflow:hidden;margin:18px 0}
+.fill{height:100%;width:72%;background:linear-gradient(90deg,#0ea5e9,#2dd4bf);transition:width .5s}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.value{font-size:25px;font-weight:bold;margin-top:10px}
+.tank-wrap{display:flex;align-items:center;gap:25px}
+.tank{height:190px;width:105px;border:3px solid #7890ad;border-radius:15px 15px 22px 22px;overflow:hidden;display:flex;align-items:end;background:#0b1220}
+.water{width:100%;height:72%;background:linear-gradient(#38bdf8,#0369a1);transition:height .5s}
+button{border:0;border-radius:10px;background:#0e9f91;color:white;padding:12px 15px;font-weight:bold;cursor:pointer}
+input{width:100%;padding:12px;margin:10px 0;background:#0b1220;color:white;border:1px solid #40516a;border-radius:9px}
+@media(max-width:520px){main{padding:14px}.grid{grid-template-columns:1fr 1fr}.big{font-size:34px}.tank{height:150px;width:80px}.panel{padding:15px}}
+</style>
+</head>
+<body>
+<main>
+<header>
+ <div class="logo">💧</div>
+ <div><h1>AQUA MONITOR</h1><div class="muted">IoT Water Tank Monitoring</div></div>
+ <div class="status" id="connection">● DEMO</div>
+</header>
+
+<section class="panel">
+ <div class="small">LEVEL AIR SAAT INI</div>
+ <div class="tank-wrap">
+  <div style="flex:1">
+   <div class="big teal" id="percent">72%</div>
+   <div id="height">144 cm dari 200 cm</div>
+   <div class="bar"><div class="fill" id="bar"></div></div>
+   <div class="small" id="updated">Data contoh · belum terhubung</div>
+  </div>
+  <div class="tank"><div class="water" id="water"></div></div>
+ </div>
+</section>
+
+<section class="grid">
+ <div class="panel"><div class="small">JARAK SENSOR KE AIR</div><div class="value" id="distance">56 cm</div></div>
+ <div class="panel"><div class="small">STATUS AIR</div><div class="value teal" id="levelStatus">NORMAL</div></div>
+</section>
+
+<section class="panel">
+ <div style="font-weight:bold">Hubungkan ke MQTT</div>
+ <div class="small">Broker WebSocket untuk menerima data langsung dari MQTTX/ESP32.</div>
+ <input id="broker" value="wss://broker.emqx.io:8084/mqtt" aria-label="Alamat broker">
+ <input id="topic" value="belajar/toren/dadan82" aria-label="Topik MQTT">
+ <button onclick="connectMqtt()">Hubungkan</button>
+ <button onclick="demo()" style="background:#334155">Data demo</button>
+ <p class="small" id="message">Mode demo aktif.</p>
+</section>
+
+<section class="panel">
+ <div style="font-weight:bold">Riwayat level air</div>
+ <canvas id="chart" style="width:100%;height:180px"></canvas>
+</section>
+</main>
+
+<script>
+let client=null, history=[];
+function showData(d){
+ const p=Math.max(0,Math.min(100,Number(d.level_percent)||0));
+ const h=Math.max(0,Math.min(200,Number(d.level_cm)||0));
+ document.getElementById('percent').textContent=p+'%';
+ document.getElementById('height').textContent=h+' cm dari 200 cm';
+ document.getElementById('distance').textContent=(Number(d.distance_cm)||0)+' cm';
+ document.getElementById('levelStatus').textContent=d.status||'NORMAL';
+ document.getElementById('bar').style.width=p+'%';
+ document.getElementById('water').style.height=p+'%';
+ document.getElementById('updated').textContent='Diperbarui: '+new Date().toLocaleTimeString('id-ID');
+ history.push({time:new Date().toLocaleTimeString('id-ID'),value:p});
+ if(history.length>20)history.shift();
+ drawChart();
+}
+function connectMqtt(){
+ if(typeof mqtt==='undefined'){alert('Library MQTT belum termuat. Periksa internet lalu muat ulang halaman.');return;}
+ if(client)client.end();
+ const broker=document.getElementById('broker').value.trim();
+ const topic=document.getElementById('topic').value.trim();
+ document.getElementById('message').textContent='Mencoba terhubung...';
+ client=mqtt.connect(broker,{clientId:'toren_web_'+Math.random().toString(16).slice(2,10),connectTimeout:10000,reconnectPeriod:3000});
+ client.on('connect',()=>{
+  document.getElementById('connection').textContent='● ONLINE';
+  document.getElementById('connection').style.color='#5eead4';
+  document.getElementById('message').textContent='Terhubung. Menunggu data level air...';
+  client.subscribe(topic);
+ });
+ client.on('message',(t,payload)=>{
+  try{showData(JSON.parse(payload.toString()));document.getElementById('message').textContent='Data diterima dari '+t;}
+  catch(e){document.getElementById('message').textContent='Pesan diterima tetapi format bukan JSON yang valid.';}
+ });
+ client.on('error',()=>{document.getElementById('connection').textContent='● ERROR';document.getElementById('message').textContent='Koneksi gagal. Periksa broker dan jaringan.';});
+ client.on('close',()=>{document.getElementById('connection').textContent='● OFFLINE';});
+}
+function demo(){
+ showData({distance_cm:56,level_cm:144,level_percent:72,status:'NORMAL'});
+ document.getElementById('connection').textContent='● DEMO';
+ document.getElementById('connection').style.color='#fbbf24';
+ document.getElementById('message').textContent='Menampilkan data simulasi.';
+}
+function drawChart(){
+ const c=document.getElementById('chart'),ctx=c.getContext('2d');
+ const w=c.clientWidth,h=180,dpr=window.devicePixelRatio||1;
+ c.width=w*dpr;c.height=h*dpr;ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);
+ ctx.strokeStyle='#334155';ctx.fillStyle='#94a3b8';ctx.font='11px Arial';
+ for(let i=0;i<=4;i++){let y=12+i*(h-28)/4;ctx.beginPath();ctx.moveTo(28,y);ctx.lineTo(w-5,y);ctx.stroke();ctx.fillText(100-i*25+'%',0,y+4);}
+ if(history.length<1)return;
+ ctx.strokeStyle='#2dd4bf';ctx.lineWidth=2;ctx.beginPath();
+ history.forEach((v,i)=>{let x=30+i*(w-40)/Math.max(19,history.length-1),y=12+(100-v.value)*(h-28)/100;i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+ ctx.stroke();
+}
+window.addEventListener('resize',drawChart);
+demo();
+</script>
+</body>
+</html>
